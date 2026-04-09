@@ -37,7 +37,7 @@ esac
 
 # Capitalize first letter for the pipeline name
 CAP_SERVICE="$(echo "${SERVICE:0:1}" | tr '[:lower:]' '[:upper:]')${SERVICE:1}"
-PIPELINE_NAME="Ngcom${CAP_SERVICE}AppPipeline"
+PIPELINE_NAME="github-Ngcom${CAP_SERVICE}AppPipeline"
 
 # Configurable via env — defaults are the project standard values
 BUCKET="${BUCKET:-backstage-idp-mock-source-381492075615}"
@@ -69,6 +69,6 @@ echo "Or in the console:"
 echo "  https://${REGION}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${PIPELINE_NAME}/view?region=${REGION}"
 echo ""
 echo "Expected cascade: ~30s after CI success, the 3 market CD pipelines will start:"
-echo "  - Ngcom${CAP_SERVICE}ThaAppPipeline"
-echo "  - Ngcom${CAP_SERVICE}JpAppPipeline"
-echo "  - Ngcom${CAP_SERVICE}LatamAppPipeline"
+echo "  - github-Ngcom${CAP_SERVICE}ThaAppPipeline"
+echo "  - github-Ngcom${CAP_SERVICE}JpAppPipeline"
+echo "  - github-Ngcom${CAP_SERVICE}LatamAppPipeline"

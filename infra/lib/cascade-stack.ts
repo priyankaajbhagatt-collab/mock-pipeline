@@ -5,7 +5,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import { cap, Service, Market } from './stage-defs';
+import { cap, ciPipelineName, cdPipelineName, Service, Market } from './stage-defs';
 
 /**
  * CascadeStack — CI → CD trigger plumbing.
@@ -33,14 +33,14 @@ export class CascadeStack extends cdk.Stack {
     const { services, markets } = props;
 
     // Full list of CI pipeline names (we want to match ONLY these, not the CD ones)
-    const ciPipelineNames = services.map((svc) => `Ngcom${cap(svc)}AppPipeline`);
+    const ciPipelineNames = services.map((svc) => ciPipelineName(svc));
 
     // Full list of CD pipeline ARNs the Lambda needs permission to start
     const cdPipelineArns: string[] = [];
     for (const svc of services) {
       for (const mkt of markets) {
         cdPipelineArns.push(
-          `arn:aws:codepipeline:${this.region}:${this.account}:Ngcom${cap(svc)}${cap(mkt)}AppPipeline`,
+          `arn:aws:codepipeline:${this.region}:${this.account}:${cdPipelineName(svc, mkt)}`,
         );
       }
     }
@@ -70,20 +70,26 @@ export class CascadeStack extends cdk.Stack {
       memorySize: 256,
       logGroup: cascadeLogGroup,
       environment: {
-        SERVICES: services.join(','),
-        MARKETS: markets.join(','),
+        // JSON map of CI pipeline name → comma-separated CD pipeline names for that service.
+        // Built at synth time using the shared naming functions so it's always in sync.
+        PIPELINE_MAP: JSON.stringify(
+          Object.fromEntries(
+            services.map((svc) => [
+              ciPipelineName(svc),
+              markets.map((mkt) => cdPipelineName(svc, mkt)).join(','),
+            ]),
+          ),
+        ),
         REGION: this.region,
-        ACCOUNT: this.account,
       },
       code: lambda.Code.fromInline(`
 const { CodePipelineClient, StartPipelineExecutionCommand } = require('@aws-sdk/client-codepipeline');
 
 const cp = new CodePipelineClient({ region: process.env.REGION });
 
-const SERVICES = (process.env.SERVICES || '').split(',').filter(Boolean);
-const MARKETS  = (process.env.MARKETS  || '').split(',').filter(Boolean);
-
-function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+// PIPELINE_MAP is a JSON object: { "<ci-pipeline-name>": "<cd1>,<cd2>,<cd3>" }
+// Built at CDK synth time using the shared naming functions — always in sync.
+const PIPELINE_MAP = JSON.parse(process.env.PIPELINE_MAP || '{}');
 
 exports.handler = async (event) => {
   console.log('Incoming event:', JSON.stringify(event));
@@ -92,57 +98,17 @@ exports.handler = async (event) => {
   const state = event?.detail?.state;
 
   if (state !== 'SUCCEEDED') {
-    console.log(\`Ignoring state=\${state} for pipeline=\${pipelineName} — only SUCCEEDED triggers cascade\`);
+    console.log(\`Ignoring state=\${state} for pipeline=\${pipelineName}\`);
     return { ok: true, skipped: true };
   }
 
-  // Figure out which service this CI pipeline belongs to.
-  // CI pipeline naming: Ngcom<Cap(service)>AppPipeline
-  // CD pipeline naming: Ngcom<Cap(service)><Cap(market)>AppPipeline
-  // We need to match CI only — reject anything that already contains a market suffix.
-  const match = /^Ngcom(.+)AppPipeline$/.exec(pipelineName || '');
-  if (!match) {
-    console.log(\`Pipeline name "\${pipelineName}" does not match Ngcom*AppPipeline — ignoring\`);
+  const cdEntry = PIPELINE_MAP[pipelineName];
+  if (!cdEntry) {
+    console.log(\`Pipeline "\${pipelineName}" not in PIPELINE_MAP — ignoring\`);
     return { ok: true, skipped: true };
   }
 
-  const middle = match[1]; // e.g. "Comorderas" (CI) or "ComorderasTha" (CD)
-
-  // Find the service whose capitalized form is a prefix of 'middle'.
-  // The remaining suffix must EITHER be empty (CI) or equal to a known market (CD).
-  let matchedService = null;
-  let suffix = '';
-  for (const svc of SERVICES) {
-    const capSvc = cap(svc);
-    if (middle === capSvc) {
-      matchedService = svc;
-      suffix = '';
-      break;
-    }
-    if (middle.startsWith(capSvc)) {
-      const rest = middle.slice(capSvc.length);
-      // Is the rest a known market? If so, this is a CD pipeline — skip.
-      // If the rest is not empty, it must be a market — which means this
-      // event is from a CD pipeline and we ignore it.
-      matchedService = svc;
-      suffix = rest;
-      break;
-    }
-  }
-
-  if (!matchedService) {
-    console.log(\`No known service matched for pipeline "\${pipelineName}"\`);
-    return { ok: true, skipped: true };
-  }
-
-  if (suffix !== '') {
-    console.log(\`Pipeline "\${pipelineName}" is a CD pipeline (service=\${matchedService}, suffix=\${suffix}) — ignoring to avoid cascade loop\`);
-    return { ok: true, skipped: true };
-  }
-
-  // It's a CI pipeline for a known service — fan out to the 3 CD pipelines.
-  const cdPipelineNames = MARKETS.map((mkt) => \`Ngcom\${cap(matchedService)}\${cap(mkt)}AppPipeline\`);
-
+  const cdPipelineNames = cdEntry.split(',').filter(Boolean);
   console.log(\`CI pipeline \${pipelineName} succeeded — starting CD pipelines: \${cdPipelineNames.join(', ')}\`);
 
   const results = await Promise.allSettled(

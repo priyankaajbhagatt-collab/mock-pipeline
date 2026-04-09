@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM OIDC provider + role that GitHub Actions uses to deploy/destroy CDK stacks
+  and upload trigger zips to S3. No long-lived credentials required.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Description: GitHub organisation or username that owns the repository
+  GitHubRepo:
+    Type: String
+    Description: Repository name (without the org prefix)
+
+Resources:
+  # ── GitHub OIDC provider ────────────────────────────────────────────────────
+  # Creates the trust anchor that lets GitHub exchange an OIDC token for
+  # temporary AWS credentials.  Only one provider per account is needed —
+  # skip this resource (and its ref below) if it already exists in the account.
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  # ── Deploy role ────────────────────────────────────────────────────────────
+  GitHubActionsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-actions-mock-pipeline-deploy
+      Description: Assumed by GitHub Actions workflows in the mock-pipeline repo
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !GetAtt GitHubOidcProvider.Arn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                # Scoped to main branch deploys + PRs on this repo only.
+                # Change to  :sub: repo:<org>/<repo>:*  to allow all branches/events.
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:pull_request
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/*
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess   # CDK needs broad permissions to create pipelines, roles, lambdas, etc.
+
+Outputs:
+  RoleArn:
+    Description: Paste this value into GitHub → Settings → Secrets → AWS_DEPLOY_ROLE_ARN
+    Value: !GetAtt GitHubActionsDeployRole.Arn

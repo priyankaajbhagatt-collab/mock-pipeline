@@ -115,12 +115,12 @@ export function cap(s: string): string {
 
 /** Pipeline name for a CI pipeline. Mirrors Amway's naming convention. */
 export function ciPipelineName(service: Service): string {
-  return `Ngcom${cap(service)}AppPipeline`;
+  return `github-Ngcom${cap(service)}AppPipeline`;
 }
 
 /** Pipeline name for a per-market CD pipeline. Mirrors Amway's naming convention. */
 export function cdPipelineName(service: Service, market: Market): string {
-  return `Ngcom${cap(service)}${cap(market)}AppPipeline`;
+  return `github-Ngcom${cap(service)}${cap(market)}AppPipeline`;
 }
 
 /** Substitute ${MARKET} template in stage names/descriptions with the uppercase market code. */

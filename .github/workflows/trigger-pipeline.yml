@@ -1,0 +1,58 @@
+name: Trigger Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to trigger'
+        required: true
+        type: choice
+        options:
+          - comorderas
+          - copayment
+          - coprofile
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    name: Trigger ${{ inputs.service }} CI pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload trigger zip to S3
+        run: |
+          SERVICE="${{ inputs.service }}"
+          BUCKET="backstage-idp-mock-source-381492075615"
+          KEY="services/${SERVICE}/source.zip"
+          TIMESTAMP=$(date -u +%FT%TZ)
+
+          mkdir /tmp/trigger-src
+          echo "trigger ${SERVICE} at ${TIMESTAMP}" > /tmp/trigger-src/trigger.txt
+          cd /tmp/trigger-src && zip -q /tmp/source.zip trigger.txt
+
+          echo "Uploading to s3://${BUCKET}/${KEY} ..."
+          aws s3 cp /tmp/source.zip "s3://${BUCKET}/${KEY}" --no-progress
+
+          CAP_SERVICE="$(echo "${SERVICE:0:1}" | tr '[:lower:]' '[:upper:]')${SERVICE:1}"
+          PIPELINE_NAME="github-Ngcom${CAP_SERVICE}AppPipeline"
+
+          echo ""
+          echo "Triggered: ${PIPELINE_NAME}"
+          echo "Console: https://us-east-1.console.aws.amazon.com/codesuite/codepipeline/pipelines/${PIPELINE_NAME}/view?region=us-east-1"
+          echo ""
+          echo "CD pipelines that will start ~30s after CI success:"
+          echo "  github-Ngcom${CAP_SERVICE}ThaAppPipeline"
+          echo "  github-Ngcom${CAP_SERVICE}JpAppPipeline"
+          echo "  github-Ngcom${CAP_SERVICE}LatamAppPipeline"
