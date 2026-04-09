@@ -1,0 +1,27 @@
+{
+  "name": "backstage-idp-mock-pipelines-infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CDK app that provisions 12 mock Amway NextGen CodePipelines (3 CI + 9 CD) + shared CodeBuild + CI→CD cascade.",
+  "bin": {
+    "pipelines": "bin/pipelines.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --all --require-approval never",
+    "destroy": "cdk destroy --all --force",
+    "diff": "cdk diff"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "aws-cdk": "^2.160.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.4.5"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.160.0",
+    "constructs": "^10.3.0"
+  }
+}
